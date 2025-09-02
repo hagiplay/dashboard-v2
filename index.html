@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>פיצוץ בועות AI</title>
+<style>
+/* Basic reset */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;height:100%;min-width:1200px;font-family:system-ui,sans-serif;background:radial-gradient(circle at top left,#0d0d0d,#1a1a1a);color:#fff;direction:rtl;overflow:hidden}
+#widthWarning{position:fixed;top:0;left:0;right:0;bottom:0;background:#000c;display:flex;align-items:center;justify-content:center;font-size:2em;z-index:1000}
+@media (min-width:1200px){#widthWarning{display:none}}
+:root{--glass:rgba(255,255,255,.1);--border:rgba(255,255,255,.25);--accent:#4dd0e1}
+#hud,#sidePanel,.modalContent{background:var(--glass);border:1px solid var(--border);backdrop-filter:blur(10px);border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+#hud{position:absolute;top:10px;right:10px;left:200px;height:80px;display:flex;align-items:center;justify-content:space-around;z-index:50}
+#termCapsule{padding:8px 16px;background:var(--glass);border:1px solid var(--border);border-radius:20px;font-size:1.2em}
+#score{font-size:1.5em}
+#timer{position:relative;width:200px;height:20px;border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+#timeBar{position:absolute;right:0;top:0;bottom:0;width:100%;background:linear-gradient(90deg,var(--accent),#ff4081)}
+#sidePanel{position:absolute;top:10px;right:10px;width:170px;padding:10px;display:flex;flex-direction:column;gap:8px}
+#gameArea{position:absolute;top:100px;left:50%;transform:translateX(-50%);width:1200px;height:700px;border:1px solid var(--border);border-radius:20px;overflow:hidden;background:rgba(255,255,255,.05)}
+.bubble{position:absolute;display:flex;align-items:center;justify-content:center;width:120px;height:120px;border-radius:50%;text-align:center;padding:10px;background:radial-gradient(circle at 30% 30%,rgba(255,255,255,.9),rgba(200,200,255,.2));border:1px solid rgba(255,255,255,.4);box-shadow:0 0 10px rgba(255,255,255,.2);transition:transform .2s}
+.bubble.correct{border-color:#0f0}
+#needle{position:absolute;width:40px;height:160px;transform:translate(-20px,-150px);pointer-events:none;transition:opacity .3s}
+#needle.hidden{opacity:0}
+#needle svg{width:40px;height:160px}
+#needleLabel{position:absolute;top:170px;width:200px;text-align:center;left:-80px;font-size:1em;white-space:nowrap}
+.particle{position:absolute;width:6px;height:6px;background:#fff;border-radius:50%;pointer-events:none}
+#resultModal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:200;visibility:hidden;opacity:0;transition:opacity .3s}
+#resultModal.show{visibility:visible;opacity:1}
+.modalContent{padding:20px;width:400px;text-align:center}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div id="widthWarning">דרוש מסך רחב (1200px)</div>
+<div id="sidePanel">
+  <button id="startBtn">Start</button>
+  <button id="resetBtn">Reset</button>
+  <label>טעינת CSV<input type="file" id="csvInput" accept=".csv" style="display:none"></label>
+  <label><input type="checkbox" id="soundToggle">צליל</label>
+</div>
+<div id="hud">
+  <div id="termCapsule"><span id="currentTerm"></span></div>
+  <div id="score">0</div>
+  <div id="timer"><div id="timeBar"></div></div>
+</div>
+<div id="gameArea">
+  <div id="needle">
+    <svg viewBox="0 0 40 160">
+      <polygon points="20,0 40,160 20,140 0,160" fill="#eee"/>
+    </svg>
+    <div id="needleLabel"></div>
+  </div>
+</div>
+<div id="resultModal">
+  <div class="modalContent">
+    <h2>תוצאות</h2>
+    <p id="finalScore"></p>
+    <p id="avgTime"></p>
+    <ul id="failedList"></ul>
+    <button id="retryBtn">נסה שוב</button>
+  </div>
+</div>
+<script>
+// ---------- Data ----------
+const aiData = [
+  { status: "פתוח", lesson: 1, term: "בינה מלאכותית (AI)", definition: "מערכות שמבצעות משימות הדורשות אינטליגנציה אנושית" },
+  { status: "פתוח", lesson: 1, term: "למידת מכונה (ML)", definition: "אלגוריתמים הלומדים מנתונים לתחזיות או החלטות" },
+  { status: "פתוח", lesson: 1, term: "למידה עמוקה (DL)", definition: "רשתות נוירונים מרובות שכבות ללמידה מייצוגים מורכבים" },
+  { status: "פתוח", lesson: 1, term: "מודל שפה גדול (LLM)", definition: "מודל שאומן על כמויות טקסט גדולות ליצירה והבנת שפה" },
+  { status: "פתוח", lesson: 1, term: "עיבוד שפה טבעית (NLP)", definition: "עיבוד והבנת טקסט ודיבור על ידי מחשב" },
+  { status: "פתוח", lesson: 1, term: "ראייה ממוחשבת (CV)", definition: "ניתוח תמונות ווידאו לחילוץ מידע חזותי" },
+  { status: "פתוח", lesson: 1, term: "כימות מודלים (Quantization)", definition: "הקטנת דיוק מספרי של משקולות לשיפור מהירות וזיכרון" },
+  { status: "פתוח", lesson: 1, term: "LoRA", definition: "כוונון עדין יעיל באמצעות מטריצות דירוג נמוך" },
+  { status: "פתוח", lesson: 1, term: "טרנספורמר (Transformer)", definition: "ארכיטקטורה המבוססת על מנגנון תשומת לב" },
+  { status: "פתוח", lesson: 1, term: "תשומת לב עצמית (Self-attention)", definition: "שקלול תלות בין טוקנים באותו רצף" },
+  { status: "פתוח", lesson: 2, term: "קידוד מיקומי", definition: "הוספת מידע על מיקום בטקסט למודל" },
+  { status: "פתוח", lesson: 2, term: "מקודד (Encoder)", definition: "ממפה קלט לייצוג סמוי דחוס" },
+  { status: "פתוח", lesson: 2, term: "מפענח (Decoder)", definition: "ממפה ייצוג סמוי לפלט רציף כמו טקסט" },
+  { status: "פתוח", lesson: 2, term: "רצף לרצף (Seq2Seq)", definition: "מודלים שממפים רצף קלט לרצף פלט" },
+  { status: "פתוח", lesson: 2, term: "טוקן (Token)", definition: "יחידת טקסט בסיסית שמודל מעבד" },
+  { status: "פתוח", lesson: 2, term: "טוקניזציה (Tokenization)", definition: "פירוק טקסט לטוקנים" },
+  { status: "פתוח", lesson: 2, term: "BPE", definition: "שיטת טוקניזציה על בסיס צמדי תווים נפוצים" },
+  { status: "פתוח", lesson: 2, term: "SentencePiece", definition: "טוקניזציה ללא תלות במרווחים או שפה ספציפית" },
+  { status: "פתוח", lesson: 3, term: "הטמעה וקטורית (Embedding)", definition: "ייצוג מספרי צפוף של מילים או אובייקטים" },
+  { status: "פתוח", lesson: 3, term: "מסד נתונים וקטורי", definition: "אחסון ואחזור לפי דמיון בין וקטורים" },
+  { status: "פתוח", lesson: 3, term: "חלון הקשר (Context Window)", definition: "מספר הטוקנים שהמודל רואה בכל אינטראקציה" },
+  { status: "פתוח", lesson: 3, term: "פרומפט (Prompt)", definition: "הוראה או טקסט קלט שמכוון את המודל" },
+  { status: "פתוח", lesson: 3, term: "הנדסת פרומפטים", definition: "ניסוח ובקרה על פרומפטים לשיפור התוצאות" },
+  { status: "פתוח", lesson: 3, term: "טמפרטורה", definition: "פרמטר שמאזן בין יצירתיות לקביעות בדגימה" },
+  { status: "פתוח", lesson: 3, term: "Top-k", definition: "בחירה אקראית מתוך k ההשלמות הסבירות ביותר" },
+  { status: "פתוח", lesson: 3, term: "Top-p (Nucleus)", definition: "דגימה מתוך מסה הסתברותית מצטברת p" },
+  { status: "סגור", lesson: 4, term: "Beam Search", definition: "חיפוש כמה המשכים מבטיחים במקביל" },
+  { status: "סגור", lesson: 4, term: "Zero-shot", definition: "ביצוע משימה ללא דוגמאות לימוד" },
+  { status: "סגור", lesson: 4, term: "Few-shot", definition: "ביצוע משימה עם מעט דוגמאות בהנחיה" },
+  { status: "סגור", lesson: 4, term: "שרשרת חשיבה (CoT)", definition: "פירוק בעיה לצעדים מוסברים בזמן פתרון" },
+  { status: "סגור", lesson: 4, term: "למידה מונחית (Supervised)", definition: "אימון על נתונים עם תוויות ידועות" },
+  { status: "סגור", lesson: 4, term: "למידה ללא פיקוח (Unsupervised)", definition: "גילוי מבנים בנתונים ללא תוויות" },
+  { status: "סגור", lesson: 4, term: "למידה עצמית מונחית (Self-supervised)", definition: "חיזוי חלקים מהקלט כדי ליצור תוויות עצמיות" },
+  { status: "סגור", lesson: 5, term: "למידה בחיזוק (RL)", definition: "למידה דרך תגמולים בעולם אינטראקטיבי" },
+  { status: "סגור", lesson: 5, term: "RLHF", definition: "כוונון בעזרת משוב אנושי על איכות הפלט" },
+  { status: "סגור", lesson: 5, term: "RLAIF", definition: "כוונון בעזרת שיפוט של מודל עוזר במקום אדם" },
+  { status: "סגור", lesson: 5, term: "קדם אימון (Pretraining)", definition: "אימון בסיסי כללי על כמויות נתונים גדולות" },
+  { status: "סגור", lesson: 5, term: "כוונון עדין (Fine-tuning)", definition: "התאמת מודל למשימה או דומיין ספציפיים" },
+  { status: "סגור", lesson: 6, term: "זיקוק ידע (Knowledge Distillation)", definition: "העברת ידע ממודל גדול לקטן ויעיל יותר" },
+  { status: "סגור", lesson: 6, term: "פונקציית הפסד (Loss)", definition: "מדד שגיאה שהאימון מנסה למזער" },
+  { status: "סגור", lesson: 6, term: "אנטרופיה צולבת (Cross-entropy)", definition: "פונקציית הפסד נפוצה לסיווג ורצפים" },
+  { status: "סגור", lesson: 6, term: "ירידת גרדיאנט (Gradient Descent)", definition: "אופטימיזציה בעדכון בכיוון המורד בשיפוע" },
+  { status: "סגור", lesson: 6, term: "החזרה לאחור (Backpropagation)", definition: "חישוב גרדיאנטים לאימון רשתות" },
+  { status: "סגור", lesson: 6, term: "עודף התאמה (Overfitting)", definition: "למידת יתר של האימון ופגיעה בהכללה" },
+  { status: "סגור", lesson: 6, term: "רגולריזציה (Regularization)", definition: "טכניקות להפחתת עודף התאמה" },
+  { status: "סגור", lesson: 6, term: "דרופאאוט (Dropout)", definition: "כיבוי אקראי נוירונים בזמן אימון לשיפור הכללה" },
+  { status: "סגור", lesson: 6, term: "פרפלקסיטי (Perplexity)", definition: "מדד איכות חיזוי של מודלי שפה" },
+  { status: "סגור", lesson: 7, term: "הזיות מודל (Hallucinations)", definition: "פלט בטוח אך שגוי או בדוי" },
+  { status: "סגור", lesson: 7, term: "RAG", definition: "יצירה בתוספת איחזור ידע ממקורות חיצוניים" },
+  { status: "סגור", lesson: 7, term: "יישור מודל לבטיחות (Alignment)", definition: "התאמת המודל לערכים, מדיניות ובטיחות משתמש" }
+];
+
+function parseCsvToData(csvText){
+  const lines = csvText.trim().split(/\r?\n/);
+  const headers = lines.shift().split(',').map(h=>h.trim());
+  return lines.map(l=>{
+    const parts = l.split(',');
+    const obj={};
+    headers.forEach((h,i)=>obj[h.trim()]=parts[i]?parts[i].trim():"");
+    obj.lesson = Number(obj.lesson);
+    return obj;
+  });
+}
+
+// Utility
+function shuffle(arr){for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]];}return arr;}
+
+function pickFiveOpenItems(data){
+  const open=data.filter(d=>d.status.trim()==='פתוח');
+  if(open.length<5)return shuffle(open);
+  const L=Math.max(...open.map(d=>d.lesson));
+  const latest=open.filter(d=>d.lesson===L);
+  const older=open.filter(d=>d.lesson<L);
+  shuffle(latest);shuffle(older);
+  const chosen=[...latest.slice(0,2),...older.slice(0,3)];
+  if(chosen.length<5){chosen.push(...latest.slice(2,2+(5-chosen.length)));}
+  return shuffle(chosen.slice(0,5));
+}
+
+// ---------- Game Classes ----------
+class Bubble{
+  constructor(item){
+    this.item=item; // holds definition and term
+    this.el=document.createElement('div');
+    this.el.className='bubble';
+    this.el.textContent=item.definition;
+    this.radius=60;
+    this.x=Math.random()* (gameArea.clientWidth-2*this.radius)+this.radius;
+    this.y=Math.random()* (gameArea.clientHeight-2*this.radius)+this.radius;
+    const speed=40+Math.random()*40;
+    const angle=Math.random()*Math.PI*2;
+    this.vx=Math.cos(angle)*speed;
+    this.vy=Math.sin(angle)*speed;
+    gameArea.appendChild(this.el);
+  }
+  update(dt){
+    this.x+=this.vx*dt;
+    this.y+=this.vy*dt;
+    confineBubble(this);
+    this.el.style.transform=`translate3d(${this.x-this.radius}px,${this.y-this.radius}px,0)`;
+  }
+  remove(){
+    this.el.remove();
+  }
+}
+
+class Needle{
+  constructor(){
+    this.el=document.getElementById('needle');
+    this.label=document.getElementById('needleLabel');
+    this.x=gameArea.clientWidth/2;
+    this.y=gameArea.clientHeight/2;
+    this.hidden=false;
+    this.update();
+  }
+  setTerm(t){this.label.textContent=t;}
+  move(x,y){this.x=x;this.y=y;this.update();}
+  nudge(dx,dy){this.x=Math.min(Math.max(this.x+dx,0),gameArea.clientWidth);this.y=Math.min(Math.max(this.y+dy,0),gameArea.clientHeight);this.update();}
+  update(){this.el.style.transform=`translate3d(${this.x}px,${this.y}px,0)`;}
+  hide(){this.hidden=true;this.el.classList.add('hidden');}
+  show(){this.hidden=false;this.el.classList.remove('hidden');}
+  tip(){return{ x:this.x+20, y:this.y }}
+}
+
+// ---------- Game State ----------
+const gameArea=document.getElementById('gameArea');
+let bubbles=[],needle,items=[],currentIndex=0,score=0,running=false,startTime=0,lastTime=0,failed=[],timeLimit=90,elapsed=0,stab=false;
+
+function initGame(sel){
+  gameArea.querySelectorAll('.bubble').forEach(b=>b.remove());
+  bubbles=[];items=sel;currentIndex=0;score=0;failed=[];elapsed=0;
+  document.getElementById('score').textContent='0';
+  needle=new Needle();
+  needle.setTerm(items[currentIndex].term);
+  spawnBubbles(items);
+  startTime=performance.now();lastTime=startTime;running=true;
+  requestAnimationFrame(loop);
+}
+
+function spawnBubbles(items){
+  const usedDefs=new Set();
+  items.forEach(it=>{bubbles.push(new Bubble(it));usedDefs.add(it.definition);});
+  const others=aiData.filter(d=>!items.includes(d)&&d.status==='פתוח');
+  shuffle(others);
+  const extra=Math.min(3,Math.max(1,6-items.length));
+  for(let i=0;i<extra;i++){const fake=new Bubble(others[i]);bubbles.push(fake);}  }
+
+function confineBubble(b){
+  if(b.x-b.radius<0){b.x=b.radius;b.vx*=-1}
+  if(b.x+b.radius>gameArea.clientWidth){b.x=gameArea.clientWidth-b.radius;b.vx*=-1}
+  if(b.y-b.radius<0){b.y=b.radius;b.vy*=-1}
+  if(b.y+b.radius>gameArea.clientHeight){b.y=gameArea.clientHeight-b.radius;b.vy*=-1}
+}
+
+function loop(ts){
+  if(!running)return;const dt=(ts-lastTime)/1000;lastTime=ts;update(dt);draw();requestAnimationFrame(loop);}
+
+function update(dt){
+  elapsed+=dt;if(elapsed>timeLimit){endGame();return;}
+  bubbles.forEach(b=>b.update(dt));
+  document.getElementById('timeBar').style.width=`${(1-elapsed/timeLimit)*100}%`;
+}
+
+function draw(){/* movement already via update */}
+
+function handleHit(){
+  if(needle.hidden)return;
+  const tip=needle.tip();
+  for(const b of bubbles){const dx=tip.x-(b.x);const dy=tip.y-(b.y);if(Math.hypot(dx,dy)<=b.radius){
+      if(b.item.term===items[currentIndex].term){
+        explode(b.x,b.y);b.remove();bubbles=bubbles.filter(x=>x!==b);score++;document.getElementById('score').textContent=score;currentIndex++;if(currentIndex>=items.length){endGame();return;}needle.setTerm(items[currentIndex].term);}
+      else{needle.hide();setTimeout(()=>needle.show(),1500);failed.push(items[currentIndex].term);}return;}}
+}
+
+function endGame(){running=false;const avg=score? (elapsed/score).toFixed(2):'--';document.getElementById('finalScore').textContent=`ניקוד: ${score}/5`;document.getElementById('avgTime').textContent=`זמן ממוצע: ${avg}s`;const ul=document.getElementById('failedList');ul.innerHTML='';failed.forEach(f=>{const li=document.createElement('li');li.textContent=f;ul.appendChild(li);});sessionStorage.setItem('lastScore',score);document.getElementById('resultModal').classList.add('show');}
+
+function explode(x,y){for(let i=0;i<15;i++){const p=document.createElement('span');p.className='particle';gameArea.appendChild(p);const ang=Math.random()*Math.PI*2;const dist=20+Math.random()*40;p.style.left=x+'px';p.style.top=y+'px';p.style.transform=`translate3d(0,0,0)`;p.style.transition='transform .6s ease-out,opacity .6s';requestAnimationFrame(()=>{p.style.transform=`translate3d(${Math.cos(ang)*dist}px,${Math.sin(ang)*dist}px,0)`;p.style.opacity='0';});setTimeout(()=>p.remove(),600);} }
+
+function resetGame(){running=false;bubbles.forEach(b=>b.remove());bubbles=[];document.getElementById('resultModal').classList.remove('show');}
+
+// ---------- Events ----------
+const startBtn=document.getElementById('startBtn');
+const resetBtn=document.getElementById('resetBtn');
+const retryBtn=document.getElementById('retryBtn');
+startBtn.addEventListener('click',()=>{const five=pickFiveOpenItems(aiData);if(five.length<5){alert('לא מספיק רשומות פתוחות');return;}document.getElementById('resultModal').classList.remove('show');initGame(five);});
+resetBtn.addEventListener('click',resetGame);
+retryBtn.addEventListener('click',()=>{document.getElementById('resultModal').classList.remove('show');startBtn.click();});
+
+gameArea.addEventListener('mousemove',e=>{const rect=gameArea.getBoundingClientRect();needle.move(e.clientX-rect.left,e.clientY-rect.top);});
+
+document.addEventListener('keydown',e=>{if(!needle)return;if(e.key==='ArrowLeft')needle.nudge(-10,0);if(e.key==='ArrowRight')needle.nudge(10,0);if(e.key==='ArrowUp')needle.nudge(0,-10);if(e.key==='ArrowDown')needle.nudge(0,10);if(e.code==='Space'){e.preventDefault();handleHit();}});
+
+gameArea.addEventListener('click',handleHit);
+
+// CSV loading
+const csvInput=document.getElementById('csvInput');
+csvInput.addEventListener('change',e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{const newData=parseCsvToData(reader.result);aiData.splice(0,aiData.length,...newData);};reader.readAsText(file,'utf-8');});
+
+// Load last score
+window.addEventListener('load',()=>{const last=sessionStorage.getItem('lastScore');if(last)console.log('Last score',last);});
+</script>
+</body>
+</html>
